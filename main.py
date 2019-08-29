@@ -205,15 +205,15 @@ def optimize(dofs):
     for j in range(j3d_pre.shape[0]):
         error.append(e3d[j])
         error.append(e2d[j])
-    for d in range(dofs_limit.shape[0]):
-        if dofs[d + 3] < dofs_limit[d, 0]:
-            error.append((dofs[d + 3] - dofs_limit[d, 0]) ** 2)
-        else:
-            error.append(0.)
-        if dofs[d + 3] > dofs_limit[d, 1]:
-            error.append((dofs[d + 3] - dofs_limit[d, 1]) ** 2)
-        else:
-            error.append(0.)
+    # for d in range(dofs_limit.shape[0]):
+    #     if dofs[d + 3] < dofs_limit[d, 0]:
+    #         error.append((dofs[d + 3] - dofs_limit[d, 0]) ** 2)
+    #     else:
+    #         error.append(0.)
+    #     if dofs[d + 3] > dofs_limit[d, 1]:
+    #         error.append((dofs[d + 3] - dofs_limit[d, 1]) ** 2)
+    #     else:
+    #         error.append(0.)
     return error
 
 
