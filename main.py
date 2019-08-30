@@ -216,7 +216,7 @@ def main():
     dofs = np.zeros((frame_num, 28))
     dofs[:, :3] = j3ds[:, 0]
     # for f in range(frame):
-    f = 100
+    f = 0
     print('-------------------------------------')
     j3d, j2d = j3ds[f], j2ds[f]
     dof = dofs[f]
