@@ -5,6 +5,9 @@ import os
 from Quaternions import Quaternions
 import Animation
 from visualization import plot_2skeleton
+from datetime import datetime
+import time
+import cv2
 
 '''
 dofs:
@@ -187,6 +190,21 @@ def read_joints_from_h36m(annot_dir='E:/Datasets/Human3.6m/processed/S11/Walking
     return j3d, j2d, cam
 
 
+def frame_to_video(save_dir):
+    print('To Video...')
+    fps = 10
+    fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
+    imgs_name = os.listdir(save_dir)
+    imgs_path = sorted([save_dir + '/' + img_name for img_name in imgs_name])
+    image = cv2.imread(imgs_path[0])
+    videoWriter = cv2.VideoWriter(save_dir + '/../' + save_dir.split('/')[-1] + '.avi', fourcc, fps,
+                                 (image.shape[1], image.shape[0]))
+    for img_path in imgs_path:
+        img = cv2.imread(img_path)
+        videoWriter.write(img)
+    videoWriter.release()
+
+
 def optimize(dofs):
     global j3d, j2d, cam
     j3d_pre, j2d_pre = compute_joints_from_dofs(dofs, cam)   # (17, 3/2)
@@ -215,23 +233,38 @@ def main():
     frame_num = j3ds.shape[0]
     dofs = np.zeros((frame_num, 28))
     dofs[:, :3] = j3ds[:, 0]
-    # for f in range(frame):
-    f = 200
-    print('-------------------------------------')
-    j3d, j2d = j3ds[f], j2ds[f]
-    dof = dofs[f]
-    sol = root(optimize, dof[3:], method='lm')
-    print(dof[:3])
-    print(sol.x)
-    print(sol.success)
-    print(sol.nfev)
-    print(sol.message)
-    print(np.sum(sol.fun))
-    dof[3:] = sol.x
-    j3d_pre, j2d_pre = compute_joints_from_dofs(dof[3:], cam)
-    mpjpe = np.mean(np.linalg.norm(j3d * 1000 - j3d_pre * 1000, axis=-1))
-    print('MPJPE: ' + str(mpjpe) + ' mm')
-    plot_2skeleton(j3d * 100, j3d_pre * 100, mpjpe)
+
+    time_str = datetime.now().strftime("%m_%d_%H_%M")
+    save_dir = './out/' + time_str
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    start_t = time.time()
+    mpjpe_all = []
+    for f in range(frame_num):
+        # f = 200
+        print('-------------------------------------')
+        j3d, j2d = j3ds[f], j2ds[f]
+        dof = dofs[f]
+        sol = root(optimize, dof[3:], method='lm')
+        # print(dof[:3])
+        # print(sol.x)
+        # print(sol.success)
+        # print(sol.nfev)
+        # print(sol.message)
+        # print(np.sum(sol.fun))
+        dof[3:] = sol.x
+        j3d_pre, j2d_pre = compute_joints_from_dofs(dof[3:], cam)
+        mpjpe = np.mean(np.linalg.norm(j3d * 1000 - j3d_pre * 1000, axis=-1))
+        mpjpe_all.append(mpjpe)
+        print(str(f) + '-MPJPE: ' + str(mpjpe) + ' mm')
+        plot_2skeleton(j3d * 100, j3d_pre * 100, f, mpjpe, save_dir)
+
+    end_t = time.time()
+    print('time every frame: ' + str((end_t - start_t) / frame_num))
+    print(np.mean(mpjpe_all))
+
+    frame_to_video(save_dir)
 
     # all bone length
     # print(np.sum(np.linalg.norm(j3ds - j3ds[:, j17_parents], axis=-1)[:, 1:], axis=-1) * 1000)    # 4150 mm
