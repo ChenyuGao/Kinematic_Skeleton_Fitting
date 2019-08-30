@@ -15,7 +15,7 @@ def plot_keypoints3d(keypoints3d, line, ax, num):
     return ax
 
 
-def plot_2skeleton(j3d1, j3d2, mpjpe):
+def plot_2skeleton(j3d1, j3d2, mpjpe=""):
     j17_parents = [-1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 8, 11, 12, 8, 14, 15]
     line = [[i, j] for i, j in enumerate(j17_parents)][1:]
     j3d1 = j3d1 - j3d1[0]
