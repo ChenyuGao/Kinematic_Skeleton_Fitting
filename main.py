@@ -207,10 +207,15 @@ def frame_to_video(save_dir):
 
 def optimize(dofs):
     global j3d, j2d, cam
+    w3d = 9e-1
+    w2d = 1e-5
+    wlim = 5e-1
+    wtemp = 1e-7
+    wdepth = 8e-6
     j3d_pre, j2d_pre = compute_joints_from_dofs(dofs, cam)   # (17, 3/2)
-    e3d = np.mean((j3d - j3d_pre) ** 2, axis=-1)
+    e3d = w3d * np.mean((j3d - j3d_pre) ** 2, axis=-1)
     j_cal_cam = np.array([1, 2, 3, 4, 5, 6, 7, 9, 11, 12, 13, 14, 15, 16])
-    e2d = np.mean(j2d[:, 2:] * (j2d[:, :2] - j2d_pre[:, :2]) ** 2, axis=-1)
+    e2d = w2d * np.mean(j2d[:, 2:] * (j2d[:, :2] - j2d_pre[:, :2]) ** 2, axis=-1)
     error = []
     for j in range(e3d.shape[0]):
         error.append(e3d[j])
@@ -218,9 +223,9 @@ def optimize(dofs):
         error.append(e2d[j])
     for d in range(dofs_limit.shape[0]):
         if dofs[d + 3] < dofs_limit[d, 0]:
-            error.append((dofs[d + 3] - dofs_limit[d, 0]) ** 2)
+            error.append((dofs[d + 3] - dofs_limit[d, 0]) ** 2 * wlim)
         elif dofs[d + 3] > dofs_limit[d, 1]:
-            error.append((dofs[d + 3] - dofs_limit[d, 1]) ** 2)
+            error.append((dofs[d + 3] - dofs_limit[d, 1]) ** 2 * wlim)
         else:
             error.append(0.)
     return error
@@ -262,7 +267,7 @@ def main():
         plot_2skeleton(j3d * 100, j3d_pre * 100, f, mpjpe, save_dir)
 
     end_t = time.time()
-    np.savetxt('./out/' + time_str + 'dofs.txt', dofs, fmt='%1.6f')
+    np.savetxt('./out/' + time_str + '/dofs.txt', dofs, fmt='%1.6f')
     print('time every frame: ' + str((end_t - start_t) / frame_num))
     print(np.mean(mpjpe_all))
 
