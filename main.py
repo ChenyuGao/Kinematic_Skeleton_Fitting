@@ -231,36 +231,38 @@ def main():
     global j3d, j2d, cam
     j3ds, j2ds, cam = read_joints_from_h36m()      # (F, 17, 3/3)
     frame_num = j3ds.shape[0]
-    dofs = np.zeros((frame_num, 28))
+    dofs = np.zeros((frame_num, 28), dtype=float)
     dofs[:, :3] = j3ds[:, 0]
 
     time_str = datetime.now().strftime("%m_%d_%H_%M")
-    save_dir = './out/' + time_str
+    save_dir = './out/' + time_str + '/3d_skeleton'
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
     start_t = time.time()
     mpjpe_all = []
+    # dofs = np.loadtxt('./out/09_02_14_09.txt')
     for f in range(frame_num):
         # f = 200
         print('-------------------------------------')
         j3d, j2d = j3ds[f], j2ds[f]
-        dof = dofs[f]
-        sol = root(optimize, dof[3:], method='lm')
+        sol = root(optimize, dofs[f, 3:], method='lm')
+        dofs[f, 3:] = sol.x
+
         # print(dof[:3])
         # print(sol.x)
         # print(sol.success)
         # print(sol.nfev)
         # print(sol.message)
         # print(np.sum(sol.fun))
-        dof[3:] = sol.x
-        j3d_pre, j2d_pre = compute_joints_from_dofs(dof[3:], cam)
+        j3d_pre, j2d_pre = compute_joints_from_dofs(dofs[f, 3:], cam)
         mpjpe = np.mean(np.linalg.norm(j3d * 1000 - j3d_pre * 1000, axis=-1))
         mpjpe_all.append(mpjpe)
         print(str(f) + '-MPJPE: ' + str(mpjpe) + ' mm')
         plot_2skeleton(j3d * 100, j3d_pre * 100, f, mpjpe, save_dir)
 
     end_t = time.time()
+    np.savetxt('./out/' + time_str + 'dofs.txt', dofs, fmt='%1.6f')
     print('time every frame: ' + str((end_t - start_t) / frame_num))
     print(np.mean(mpjpe_all))
 

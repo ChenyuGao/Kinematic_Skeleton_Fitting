@@ -16,7 +16,7 @@ def plot_keypoints3d(keypoints3d, line, ax, num):
     return ax
 
 
-def plot_2skeleton(j3d1, j3d2, frame=0, mpjpe=None, save_dir=None):
+def plot_2skeleton(j3d1, j3d2, frame=0, mpjpe=0, save_dir=None):
     j17_parents = [-1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 8, 11, 12, 8, 14, 15]
     line = [[i, j] for i, j in enumerate(j17_parents)][1:]
     j3d1 = j3d1 - j3d1[0]
@@ -48,9 +48,9 @@ def plot_2skeleton(j3d1, j3d2, frame=0, mpjpe=None, save_dir=None):
     ax.set_xlim(-100, 100)
     ax.set_ylim(-100, 100)
     ax.set_zlim(-100, 100)
-    title = ('%03d' % frame) + '-MPJPE: ' + str(mpjpe) + ' mm'
+    title = ('%03d' % frame) + '-MPJPE: ' + ('%.2f' % mpjpe) + ' mm'
     plt.suptitle(title)
     if save_dir:
-        plt.savefig(save_dir + '/' + ('%03d' % frame) + '.png', dpi=300)
+        plt.savefig(save_dir + '/' + ('%03d' % frame) + '.png', dpi=30)
     # plt.show()
     plt.close('all')
