@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-
+import os
 
 
 def plot_keypoints3d(keypoints3d, line, ax, num):
@@ -48,9 +48,12 @@ def plot_2skeleton(j3d1, j3d2, frame=0, mpjpe=0, save_dir=None):
     ax.set_xlim(-100, 100)
     ax.set_ylim(-100, 100)
     ax.set_zlim(-100, 100)
-    title = ('%03d' % frame) + '-MPJPE: ' + ('%.2f' % mpjpe) + ' mm'
+    title = ('%04d' % frame) + '-MPJPE: ' + ('%.2f' % mpjpe) + ' mm'
     plt.suptitle(title)
     if save_dir:
-        plt.savefig(save_dir + '/' + ('%03d' % frame) + '.png', dpi=30)
+        save_dir += '/3d_skeleton'
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        plt.savefig(save_dir + '/' + ('%04d' % frame) + '.png', dpi=100)
     # plt.show()
     plt.close('all')

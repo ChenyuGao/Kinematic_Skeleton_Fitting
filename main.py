@@ -5,6 +5,7 @@ import os
 from Quaternions import Quaternions
 import Animation
 from visualization import plot_2skeleton
+from OneEuroFilter import OneEuroFilter
 from datetime import datetime
 import time
 import cv2
@@ -65,6 +66,13 @@ dofs_limit = np.array([
     [-2.7, -0.065],    # 27
 ])
 j3d, j2d, cam = 0, 0, 0
+ppre_dof, pre_dof = None, None
+use_lim, use_temp, use_filter = True, True, True
+w_3d = 9e-1
+w_2d = 1e-5
+w_lim = 5e-1
+w_temp = 1e-7
+data_path = 'E:/Datasets/Human3.6m/processed/S11/WalkingDog-2/'
 j17_parents = [-1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 8, 11, 12, 8, 14, 15]
 # passive_marker_man-tpose is good, xbot is bad
 # human forward to  -z
@@ -169,7 +177,7 @@ def h36m_skeleton_fit(j3d_h36m):
     return j17_fit
 
 
-def read_joints_from_h36m(annot_dir='E:/Datasets/Human3.6m/processed/S11/WalkingDog-2/'):
+def read_joints_from_h36m(annot_dir=data_path):
     cam_id = ['54138969', '55011271', '58860488', '60457274']
     annot_file_path = annot_dir + 'annot-' + cam_id[0] + '.h5'
     with h5py.File(annot_file_path, 'r') as annot:
@@ -206,53 +214,102 @@ def frame_to_video(save_dir):
 
 
 def optimize(dofs):
-    global j3d, j2d, cam
-    w3d = 9e-1
-    w2d = 1e-5
-    wlim = 5e-1
-    wtemp = 1e-7
-    wdepth = 8e-6
+    global j3d, j2d, cam, ppre_dof, pre_dof, w_3d, w_2d, w_lim, w_temp
     j3d_pre, j2d_pre = compute_joints_from_dofs(dofs, cam)   # (17, 3/2)
-    e3d = w3d * np.mean((j3d - j3d_pre) ** 2, axis=-1)
-    j_cal_cam = np.array([1, 2, 3, 4, 5, 6, 7, 9, 11, 12, 13, 14, 15, 16])
-    e2d = w2d * np.mean(j2d[:, 2:] * (j2d[:, :2] - j2d_pre[:, :2]) ** 2, axis=-1)
+    e3d = w_3d * np.mean((j3d - j3d_pre) ** 2, axis=-1)
+    # j_cal_cam = np.array([1, 2, 3, 4, 5, 6, 7, 9, 11, 12, 13, 14, 15, 16])
+    e2d = w_2d * np.mean(j2d[:, 2:] * (j2d[:, :2] - j2d_pre[:, :2]) ** 2, axis=-1)
     error = []
     for j in range(e3d.shape[0]):
         error.append(e3d[j])
     for j in range(e2d.shape[0]):
         error.append(e2d[j])
-    for d in range(dofs_limit.shape[0]):
-        if dofs[d + 3] < dofs_limit[d, 0]:
-            error.append((dofs[d + 3] - dofs_limit[d, 0]) ** 2 * wlim)
-        elif dofs[d + 3] > dofs_limit[d, 1]:
-            error.append((dofs[d + 3] - dofs_limit[d, 1]) ** 2 * wlim)
-        else:
-            error.append(0.)
+    # e_limit
+    if use_lim:
+        for i, d in enumerate(range(dofs_limit.shape[0])):
+            if i == 9:  # spine-y
+                w = 1
+            else:
+                w = 1
+            if dofs[d + 3] < dofs_limit[d, 0]:
+                error.append((dofs[d + 3] - dofs_limit[d, 0]) ** 2 * w * w_lim)
+            elif dofs[d + 3] > dofs_limit[d, 1]:
+                error.append((dofs[d + 3] - dofs_limit[d, 1]) ** 2 * w * w_lim)
+            else:
+                error.append(0.)
+    # e_temp
+    if use_temp:
+        if ppre_dof.shape[0] != 1 and pre_dof.shape[0] != 1:
+            e_temp = np.sqrt(((pre_dof - ppre_dof - (dofs - pre_dof)) ** 2).mean()) * w_temp
+            error.append(e_temp)
     return error
 
 
-def main():
-    np.set_printoptions(suppress=True)
-    global j3d, j2d, cam
+def begin():
+    # np.set_printoptions(suppress=True)
+    global j3d, j2d, cam, ppre_dof, pre_dof
+    ppre_dof, pre_dof = np.zeros((1, 1)), np.zeros((1, 1))
     j3ds, j2ds, cam = read_joints_from_h36m()      # (F, 17, 3/3)
     frame_num = j3ds.shape[0]
     dofs = np.zeros((frame_num, 28), dtype=float)
     dofs[:, :3] = j3ds[:, 0]
 
     time_str = datetime.now().strftime("%m_%d_%H_%M")
-    save_dir = './out/' + time_str + '/3d_skeleton'
+    subject_name = data_path.split('/')[-2]
+    if 'all' in data_path:
+        subject_name = 'all_' + subject_name
+    global use_lim, use_temp, use_filter, w_3d, w_2d, w_lim, w_temp
+    save_dir = './out/' + time_str + '_' + subject_name + '_3d_' + str(w_3d) + '+2d_' + str(w_2d)
+    if use_lim:
+        save_dir += '+lim_' + str(w_lim)
+    if use_temp:
+        save_dir += '+temp_' + str(w_temp)
+    if use_filter:
+        save_dir += '+filter'
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
+    print('save path: ' + save_dir)
+    config_filter = {
+        'freq': 10,
+        'mincutoff': 20.0,
+        'beta': 0.4,
+        'dcutoff': 1.0
+    }
+    filter_dof3 = [(OneEuroFilter(**config_filter), OneEuroFilter(**config_filter),
+                    OneEuroFilter(**config_filter), OneEuroFilter(**config_filter)) for _ in range(7)]
+    filter_dof1 = [OneEuroFilter(**config_filter) for _ in range(4)]
 
     start_t = time.time()
     mpjpe_all = []
+    threshold = 100.
+    num = 0
     # dofs = np.loadtxt('./out/09_02_14_09.txt')
     for f in range(frame_num):
-        # f = 200
         print('-------------------------------------')
         j3d, j2d = j3ds[f], j2ds[f]
         sol = root(optimize, dofs[f, 3:], method='lm')
         dofs[f, 3:] = sol.x
+        if f == 0:
+            ppre_dof = dofs[f, 3:]
+        elif f == 1:
+            pre_dof = dofs[f, 3:]
+        else:
+            ppre_dof = pre_dof
+            pre_dof = dofs[f, 3:]
+
+        # oneEuroFilter
+        if use_filter:
+            for i, j in enumerate([3, 6, 10, 14, 17, 20, 14]):
+                dof_j = dofs[f, j: j + 3]
+                theta = np.linalg.norm(dof_j)
+                axis = dof_j / theta
+                axis[0] = filter_dof3[i][0](axis[0])
+                axis[1] = filter_dof3[i][1](axis[1])
+                axis[2] = filter_dof3[i][2](axis[2])
+                theta = filter_dof3[i][3](theta)
+                dofs[f, j: j + 3] = axis * theta
+            for i, j in enumerate([9, 13, 12, 15]):
+                dofs[f, j] = filter_dof1[i](dofs[f, j])
 
         # print(dof[:3])
         # print(sol.x)
@@ -262,32 +319,37 @@ def main():
         # print(np.sum(sol.fun))
         j3d_pre, j2d_pre = compute_joints_from_dofs(dofs[f, 3:], cam)
         mpjpe = np.mean(np.linalg.norm(j3d * 1000 - j3d_pre * 1000, axis=-1))
+        if mpjpe > threshold:
+            num += 1
         mpjpe_all.append(mpjpe)
-        print(str(f) + '-MPJPE: ' + str(mpjpe) + ' mm')
+        print(('%04d' % f) + '-MPJPE: ' + ('%.2f' % mpjpe) + ' mm')
+        fd = open(save_dir + '/logs.txt', 'a+')
+        fd.write(('%04d' % f) + '-MPJPE: ' + ('%.2f' % mpjpe) + ' mm\n')
+        fd.close()
         plot_2skeleton(j3d * 100, j3d_pre * 100, f, mpjpe, save_dir)
 
     end_t = time.time()
-    np.savetxt('./out/' + time_str + '/dofs.txt', dofs, fmt='%1.6f')
+    fd = open(save_dir + '/logs.txt', 'a+')
+    fd.write('MPJPE-mean: ' + ('%.2f' % np.mean(mpjpe_all)) + ' mm\n')
+    fd.close()
+    np.savetxt(save_dir + '/' + time_str + '_dofs.txt', dofs, fmt='%1.6f')
     print('time every frame: ' + str((end_t - start_t) / frame_num))
     print(np.mean(mpjpe_all))
 
-    frame_to_video(save_dir)
+    frame_to_video(save_dir + '/3d_skeleton')
+    os.rename(save_dir, save_dir + ('_%.2fmm_' % np.mean(mpjpe_all)) + str(num))
 
-    # all bone length
-    # print(np.sum(np.linalg.norm(j3ds - j3ds[:, j17_parents], axis=-1)[:, 1:], axis=-1) * 1000)    # 4150 mm
 
-    # test cam (ok)
-    # j2ds_pre = np.dot(j3ds / j3ds[:, :, 2:], cam.T)[:, :, :2]
-    # print(j2ds[0])
-    # print(j2ds_pre[0])
-    # print(np.mean(np.linalg.norm(j2ds[:, :, :2] - j2ds_pre, axis=-1)))      # 2.15 px
-
-    # test FK (ok)
-    # dof[9] = -0.
-    # j3d_pre1, j2d_pre1 = compute_joints_from_dofs(dof[3:], cam)
-    # dof[9] = 2.5
-    # j3d_pre2, j2d_pre2 = compute_joints_from_dofs(dof[3:], cam)
-    # plot_2skeleton(j3d_pre1 * 100, j3d_pre2 * 100)
+def main():
+    global use_lim, use_temp, use_filter, w_3d, w_2d, w_lim, w_temp
+    # set global params
+    use_lim, use_temp, use_filter = True, True, False
+    # w_3d, w_2d, w_lim, w_temp = 1, 1, 1, 1
+    for w_3d in [10, 1, 0.1]:
+        for w_2d in [1, 1e-1, 1e-3, 1e-5]:
+            for w_lim in [10, 1, 0.1]:
+                for w_temp in [1e-1, 1e-3, 1e-5, 1e-7]:
+                    begin()
 
 
 if __name__ == '__main__':

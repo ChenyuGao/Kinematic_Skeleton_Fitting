@@ -58,5 +58,8 @@ def func2(x):
     return a, b, c
 
 
-sol = root(func2, [1, 1], method='lm')
-print(sol.x, sol.success, sol.nfev, sol.fun)
+# sol = root(func2, [1, 1], method='lm')
+# print(sol.x, sol.success, sol.nfev, sol.fun)
+
+fd = open('./out/logs.txt', 'a+')
+fd.write('11\n')
