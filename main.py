@@ -66,6 +66,7 @@ dofs_limit = np.array([
     [-2.7, -0.065],    # 27
 ])
 j3d, j2d, cam = 0, 0, 0
+root_rot = 0
 ppre_dof, pre_dof = None, None
 use_lim, use_temp, use_filter = True, True, True
 w_3d = 9e-1
@@ -97,23 +98,24 @@ mixamo_tpose_j3d = np.array([[  0.        ,   0.        ,   0.        ],
 
 
 def compute_joints_from_dofs(dofs, cam):
+    global mixamo_tpose_j3d, j3d, root_rot
     frame_num = 1
     axis_angle = np.zeros((frame_num, 17, 3))
     # 28 - (tx, ty, tz) = 25
-    axis_angle[0, 0] = dofs[0:3]
-    axis_angle[0, 1] = dofs[3:6]
-    axis_angle[0, 2, 0] = dofs[6]
-    axis_angle[0, 4] = dofs[7: 10]
-    axis_angle[0, 5, 0] = dofs[10]
-    axis_angle[0, 7] = dofs[11: 14]
-    axis_angle[0, 9] = dofs[14: 17]
-    axis_angle[0, 11] = dofs[17: 20]
-    axis_angle[0, 12, 1] = dofs[20]
-    axis_angle[0, 14] = dofs[21: 24]
-    axis_angle[0, 15, 1] = dofs[24]
+    # axis_angle[0, 0] = dofs[0:3]
+    axis_angle[0, 0] = root_rot
+    axis_angle[0, 1] = dofs[0: 3]
+    axis_angle[0, 2, 0] = dofs[3]
+    axis_angle[0, 4] = dofs[4: 7]
+    axis_angle[0, 5, 0] = dofs[7]
+    axis_angle[0, 7] = dofs[8: 11]
+    axis_angle[0, 9] = dofs[11: 14]
+    axis_angle[0, 11] = dofs[14: 17]
+    axis_angle[0, 12, 1] = dofs[17]
+    axis_angle[0, 14] = dofs[18: 21]
+    axis_angle[0, 15, 1] = dofs[21]
     quaternions = Quaternions.from_angle_axis(np.sqrt(np.sum(axis_angle ** 2, axis=-1)), axis_angle)
     # y-up, z-forward, x-right
-    global mixamo_tpose_j3d, j3d
     offsets = mixamo_tpose_j3d - mixamo_tpose_j3d[j17_parents]
     offsets[0] = j3d[0] * 100   # m -> cm
     positions = offsets[np.newaxis].repeat(frame_num, axis=0)  # (frames, jointsNum, 3)
@@ -213,6 +215,10 @@ def frame_to_video(save_dir):
     videoWriter.release()
 
 
+def optimize_root_rot(j3d, j2d):
+    pass
+
+
 def optimize(dofs):
     global j3d, j2d, cam, ppre_dof, pre_dof, w_3d, w_2d, w_lim, w_temp
     j3d_pre, j2d_pre = compute_joints_from_dofs(dofs, cam)   # (17, 3/2)
@@ -226,14 +232,14 @@ def optimize(dofs):
         error.append(e2d[j])
     # e_limit
     if use_lim:
-        for i, d in enumerate(range(dofs_limit.shape[0])):
-            if i == 9:  # spine-y
+        for d in range(dofs_limit.shape[0]):
+            if d == 9:  # spine-y
                 w = 1
             else:
                 w = 1
-            if dofs[d + 3] < dofs_limit[d, 0]:
+            if dofs[d] < dofs_limit[d, 0]:
                 error.append((dofs[d + 3] - dofs_limit[d, 0]) ** 2 * w * w_lim)
-            elif dofs[d + 3] > dofs_limit[d, 1]:
+            elif dofs[d] > dofs_limit[d, 1]:
                 error.append((dofs[d + 3] - dofs_limit[d, 1]) ** 2 * w * w_lim)
             else:
                 error.append(0.)
@@ -247,7 +253,7 @@ def optimize(dofs):
 
 def begin():
     # np.set_printoptions(suppress=True)
-    global j3d, j2d, cam, ppre_dof, pre_dof
+    global j3d, j2d, cam, ppre_dof, pre_dof, root_rot
     ppre_dof, pre_dof = np.zeros((1, 1)), np.zeros((1, 1))
     j3ds, j2ds, cam = read_joints_from_h36m()      # (F, 17, 3/3)
     frame_num = j3ds.shape[0]
@@ -287,15 +293,18 @@ def begin():
     for f in range(frame_num):
         print('-------------------------------------')
         j3d, j2d = j3ds[f], j2ds[f]
-        sol = root(optimize, dofs[f, 3:], method='lm')
-        dofs[f, 3:] = sol.x
+        # predict root rot
+        root_rot = optimize_root_rot(j3d, j2d)
+        dofs[f, 3:6] = root_rot
+        sol = root(optimize, dofs[f, 6:], method='lm')
+        dofs[f, 6:] = sol.x
         if f == 0:
-            ppre_dof = dofs[f, 3:]
+            ppre_dof = dofs[f, 6:]
         elif f == 1:
-            pre_dof = dofs[f, 3:]
+            pre_dof = dofs[f, 6:]
         else:
             ppre_dof = pre_dof
-            pre_dof = dofs[f, 3:]
+            pre_dof = dofs[f, 6:]
 
         # oneEuroFilter
         if use_filter:
@@ -317,7 +326,7 @@ def begin():
         # print(sol.nfev)
         # print(sol.message)
         # print(np.sum(sol.fun))
-        j3d_pre, j2d_pre = compute_joints_from_dofs(dofs[f, 3:], cam)
+        j3d_pre, j2d_pre = compute_joints_from_dofs(dofs[f, 6:], cam)
         mpjpe = np.mean(np.linalg.norm(j3d * 1000 - j3d_pre * 1000, axis=-1))
         if mpjpe > threshold:
             num += 1
@@ -344,12 +353,13 @@ def main():
     global use_lim, use_temp, use_filter, w_3d, w_2d, w_lim, w_temp
     # set global params
     use_lim, use_temp, use_filter = True, True, False
-    # w_3d, w_2d, w_lim, w_temp = 1, 1, 1, 1
-    for w_3d in [10, 1, 0.1]:
-        for w_2d in [1, 1e-1, 1e-3, 1e-5]:
-            for w_lim in [10, 1, 0.1]:
-                for w_temp in [1e-1, 1e-3, 1e-5, 1e-7]:
-                    begin()
+    w_3d, w_2d, w_lim, w_temp = 1, 1e-5, 0.1, 1
+    begin()
+    # for w_3d in [10, 1, 0.1]:
+    #     for w_2d in [1, 1e-1, 1e-3, 1e-5]:
+    #         for w_lim in [10, 1, 0.1]:
+    #             for w_temp in [1e-1, 1e-3, 1e-5, 1e-7]:
+    #                 begin()
 
 
 if __name__ == '__main__':
