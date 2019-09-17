@@ -65,14 +65,6 @@ dofs_limit = np.array([
     [-1.8, 1.4],    # 26
     [-2.7, -0.065],    # 27
 ])
-j3d, j2d, cam = 0, 0, 0
-root_rot = 0
-ppre_dof, pre_dof = None, None
-use_lim, use_temp, use_filter = True, True, True
-w_3d = 9e-1
-w_2d = 1e-5
-w_lim = 5e-1
-w_temp = 1e-7
 data_path = 'E:/Datasets/Human3.6m/processed/S11/WalkingDog-2/'
 j17_parents = [-1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 8, 11, 12, 8, 14, 15]
 # passive_marker_man-tpose is good, xbot is bad
@@ -215,8 +207,30 @@ def frame_to_video(save_dir):
     videoWriter.release()
 
 
-def optimize_root_rot(j3d, j2d):
-    pass
+def optimize_root_rot(root_rot):
+    global mixamo_tpose_j3d, j3d, w_3d, w_lim
+    gt_tri = (j3d[[1, 4, 7]] - j3d[0]) * 100    # m -> cm
+    tpose_tri = mixamo_tpose_j3d[[1, 4, 7]]
+    root_rot_m = Quaternions.from_angle_axis(np.linalg.norm(root_rot), root_rot).transforms()[0]
+    pre_tri = np.dot(tpose_tri, root_rot_m.T)   # root_m · tpose_tri.T = gt_tri.T
+    error = []
+    for i in range(pre_tri.shape[0]):
+        error.append(np.mean((gt_tri[i] - pre_tri[i]) ** 2) * w_3d)
+    # for i in range(root_rot.shape[0]):
+    #     if root_rot[i] > np.pi:
+    #         error.append((root_rot[i] - np.pi) ** 2 * w_lim)
+    #     elif root_rot[i] < -np.pi:
+    #         error.append((root_rot[i] + np.pi) ** 2 * w_lim)
+    #     else:
+    #         error.append(0.)
+    return error
+# 最小二乘法估计全局旋转虽然很准确，但是得到的旋转矩阵不是正交矩阵，因此变换为轴角再变换回矩阵造成的误差非常大
+# def optimize_root_rot(j3d):
+#     gt_tri = (j3d[[1, 4, 7]] - j3d[0]) * 100    # m -> cm
+#     global mixamo_tpose_j3d
+#     tpose_tri = mixamo_tpose_j3d[[1, 4, 7]]
+#     root_rotm = np.linalg.lstsq(tpose_tri, gt_tri, rcond=-1)[0].T
+#     return cv2.Rodrigues(root_rotm)[0].reshape((-1))
 
 
 def optimize(dofs):
@@ -233,14 +247,10 @@ def optimize(dofs):
     # e_limit
     if use_lim:
         for d in range(dofs_limit.shape[0]):
-            if d == 9:  # spine-y
-                w = 1
-            else:
-                w = 1
             if dofs[d] < dofs_limit[d, 0]:
-                error.append((dofs[d + 3] - dofs_limit[d, 0]) ** 2 * w * w_lim)
+                error.append((dofs[d] - dofs_limit[d, 0]) ** 2 * w_lim)
             elif dofs[d] > dofs_limit[d, 1]:
-                error.append((dofs[d + 3] - dofs_limit[d, 1]) ** 2 * w * w_lim)
+                error.append((dofs[d] - dofs_limit[d, 1]) ** 2 * w_lim)
             else:
                 error.append(0.)
     # e_temp
@@ -252,7 +262,7 @@ def optimize(dofs):
 
 
 def begin():
-    # np.set_printoptions(suppress=True)
+    np.set_printoptions(suppress=True)
     global j3d, j2d, cam, ppre_dof, pre_dof, root_rot
     ppre_dof, pre_dof = np.zeros((1, 1)), np.zeros((1, 1))
     j3ds, j2ds, cam = read_joints_from_h36m()      # (F, 17, 3/3)
@@ -289,13 +299,23 @@ def begin():
     mpjpe_all = []
     threshold = 100.
     num = 0
-    # dofs = np.loadtxt('./out/09_02_14_09.txt')
+    # dofs = np.loadtxt('./out/09_13_11_54_WalkingDog-2_3d_1+2d_1e-05+lim_0.1+te mp_0.1_49.63mm_1/09_13_11_54_dofs.txt')
+    # j3d, j2d = j3ds[0], j2ds[0]
+    # root_rot = dofs[0, 3:6]
+    # j3d_pre, j2d_pre = compute_joints_from_dofs(dofs[0, 6:], cam)
+    # print(j3d * 100)
+    # print(root_rot)
     for f in range(frame_num):
         print('-------------------------------------')
+        # if f == 1:
+        #     break
         j3d, j2d = j3ds[f], j2ds[f]
         # predict root rot
-        root_rot = optimize_root_rot(j3d, j2d)
+        sol = root(optimize_root_rot, dofs[f, 3:6], method='lm')
+        root_rot = sol.x
+        # root_rot = optimize_root_rot(j3d)
         dofs[f, 3:6] = root_rot
+
         sol = root(optimize, dofs[f, 6:], method='lm')
         dofs[f, 6:] = sol.x
         if f == 0:
@@ -320,12 +340,11 @@ def begin():
             for i, j in enumerate([9, 13, 12, 15]):
                 dofs[f, j] = filter_dof1[i](dofs[f, j])
 
-        # print(dof[:3])
-        # print(sol.x)
+        # print(sol.x)  # sol.x
         # print(sol.success)
         # print(sol.nfev)
         # print(sol.message)
-        # print(np.sum(sol.fun))
+        # print(sol.fun)
         j3d_pre, j2d_pre = compute_joints_from_dofs(dofs[f, 6:], cam)
         mpjpe = np.mean(np.linalg.norm(j3d * 1000 - j3d_pre * 1000, axis=-1))
         if mpjpe > threshold:
@@ -353,7 +372,7 @@ def main():
     global use_lim, use_temp, use_filter, w_3d, w_2d, w_lim, w_temp
     # set global params
     use_lim, use_temp, use_filter = True, True, False
-    w_3d, w_2d, w_lim, w_temp = 1, 1e-5, 0.1, 1
+    w_3d, w_2d, w_lim, w_temp = 1, 1e-5, 0.1, 0.1
     begin()
     # for w_3d in [10, 1, 0.1]:
     #     for w_2d in [1, 1e-1, 1e-3, 1e-5]:
