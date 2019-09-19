@@ -1,11 +1,13 @@
 import os
 from PIL import Image
 import cv2
+from main import data_path
 
-images_dir = 'E:/Datasets/Human3.6m/processed/S11/WalkingDog-2/imageSequence-54138969'
-images_unity_dir = 'E:/Projects/Kinematic_Skeleton_Fitting/out/09_02_14_09/unity_frames'
-skeleton_dir = 'E:/Projects/Kinematic_Skeleton_Fitting/out/09_02_14_09/3d_skeleton'
-save_dir = 'E:/Projects/Kinematic_Skeleton_Fitting/out/09_02_14_09/image_unity_all'
+images_dir = 'E:/Datasets/Human3.6m/processed/S11/WalkingTogether-1/imageSequence-60457274'
+log = '09_19_11_28_WalkingTogether-1_3d_1+2d_1e-05+lim_0.1+temp_0.1+filter_51.43mm_0_2.56s'
+images_unity_dir = 'E:/Projects/Kinematic_Skeleton_Fitting/out/' + log + '/unity_frames'
+skeleton_dir = 'E:/Projects/Kinematic_Skeleton_Fitting/out/' + log + '/3d_skeleton'
+save_dir = 'E:/Projects/Kinematic_Skeleton_Fitting/out/' + log + '/image_unity_all'
 if not os.path.exists(save_dir):
     os.mkdir(save_dir)
 images_path = [os.path.join(images_dir, i) for i in sorted(os.listdir(images_dir)) if 'jpg' in i]
@@ -34,8 +36,8 @@ for i in range(len(images_path)):
 print('To Video...')
 fps = 10
 fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
-imgs_name = os.listdir(save_dir)
-imgs_path = sorted([os.path.join(save_dir, img_name) for img_name in imgs_name])
+imgs_name = sorted(os.listdir(save_dir))
+imgs_path = [os.path.join(save_dir, img_name) for img_name in imgs_name]
 image = cv2.imread(imgs_path[0])
 videoWriter = cv2.VideoWriter(os.path.join(save_dir, '../', save_dir[save_dir.rfind('/') + 1:] + '.avi'), fourcc,
                               fps, (image.shape[1], image.shape[0]))

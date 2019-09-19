@@ -43,29 +43,29 @@ dofs:
 '''
 dofs_limit = np.array([
     [-2.5, 1.4],    # 6
-    [-0.8, 1.2],    # 7
-    [-0.6, 0.6],    # 8
-    [-0. , 2.5],    # 9
+    [-0.1, 0.5],    # 7     [-0.8, 1.2]
+    [-0.1, 0.6],    # 8     [-0.6, 0.6]
+    [ 0.0, 2.5],    # 9
     [-2.5, 1.4],    # 10
-    [-1.2, 0.8],    # 11
-    [-0.6, 0.6],    # 12
-    [-0. , 2.5],    # 13
-    [ 0. , 0.3],    # 14
-    [-1.0, 1.0],    # 15
+    [-0.5, 0.1],    # 11    [-1.2, 0.8]
+    [-0.6, 0.1],    # 12    [-0.6, 0.6]
+    [ 0.0, 2.5],    # 13
+    [ 0.0, 0.3],    # 14
+    [-0.5, 0.5],    # 15    [-1.0, 1.0]
     [-0.1, 0.1],    # 16
-    [-0.5, 0.5],    # 17
-    [-0.667, 0.667],    # 18
-    [-0.3, 0.3],    # 19
-    [-1.0, 1.0],    # 20
+    [-0.3, 0.3],    # 17    [-0.5, 0.5]
+    [-0.2, 0.2],    # 18    [-0.667, 0.667]
+    [-0.1, 0.1],    # 19    [-0.3, 0.3]
+    [-0.5, 0.5],    # 20    [-1.0, 1.0]
     [-0.7, 2.0],    # 21
     [-1.4, 1.8],    # 22
-    [0.065, 2.7],     # 23
-    [-1.0, 1.0],    # 24
+    [ 0.0, 2.6],    # 23    [0.065, 2.7]
+    [-0.5, 0.5],    # 24    [-1.0, 1.0]
     [-2.0, 0.7],    # 25
     [-1.8, 1.4],    # 26
-    [-2.7, -0.065],    # 27
+    [-2.6, 0.0],    # 27    [-2.7, -0.065]
 ])
-data_path = 'E:/Datasets/Human3.6m/processed/S11/WalkingDog-2/'
+data_path = 'E:/Datasets/Human3.6m/processed/S11/WalkingDog-1/'
 j17_parents = [-1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 8, 11, 12, 8, 14, 15]
 # passive_marker_man-tpose is good, xbot is bad
 # human forward to  -z
@@ -173,7 +173,7 @@ def h36m_skeleton_fit(j3d_h36m):
 
 def read_joints_from_h36m(annot_dir=data_path):
     cam_id = ['54138969', '55011271', '58860488', '60457274']
-    annot_file_path = annot_dir + 'annot-' + cam_id[0] + '.h5'
+    annot_file_path = annot_dir + 'annot-' + cam_id[3] + '.h5'
     with h5py.File(annot_file_path, 'r') as annot:
         j2d = np.array(annot['joints2D'])
         j3d = np.array(annot['joints3D-univ'])      # (f, 32, 3)
@@ -291,8 +291,9 @@ def begin():
         'beta': 0.4,
         'dcutoff': 1.0
     }
+    # 有3个自由度的节点有6个，有1个自由度的节点有4个
     filter_dof3 = [(OneEuroFilter(**config_filter), OneEuroFilter(**config_filter),
-                    OneEuroFilter(**config_filter), OneEuroFilter(**config_filter)) for _ in range(7)]
+                    OneEuroFilter(**config_filter), OneEuroFilter(**config_filter)) for _ in range(6)]
     filter_dof1 = [OneEuroFilter(**config_filter) for _ in range(4)]
 
     start_t = time.time()
@@ -328,10 +329,11 @@ def begin():
 
         # oneEuroFilter
         if use_filter:
-            for i, j in enumerate([3, 6, 10, 14, 17, 20, 14]):
+            # 对根节点的旋转不做滤波，防止unity读取计算问题导致个别帧朝向错误
+            for i, j in enumerate([6, 10, 14, 17, 20, 14]):
                 dof_j = dofs[f, j: j + 3]
                 theta = np.linalg.norm(dof_j)
-                axis = dof_j / theta
+                axis = np.divide(dof_j, theta, where=theta != 0)
                 axis[0] = filter_dof3[i][0](axis[0])
                 axis[1] = filter_dof3[i][1](axis[1])
                 axis[2] = filter_dof3[i][2](axis[2])
@@ -340,7 +342,7 @@ def begin():
             for i, j in enumerate([9, 13, 12, 15]):
                 dofs[f, j] = filter_dof1[i](dofs[f, j])
 
-        # print(sol.x)  # sol.x
+        # print(sol.x)
         # print(sol.success)
         # print(sol.nfev)
         # print(sol.message)
@@ -361,17 +363,18 @@ def begin():
     fd.write('MPJPE-mean: ' + ('%.2f' % np.mean(mpjpe_all)) + ' mm\n')
     fd.close()
     np.savetxt(save_dir + '/' + time_str + '_dofs.txt', dofs, fmt='%1.6f')
-    print('time every frame: ' + str((end_t - start_t) / frame_num))
+    time_per = (end_t - start_t) / frame_num
+    print('time every frame: ' + str(time_per))
     print(np.mean(mpjpe_all))
 
     frame_to_video(save_dir + '/3d_skeleton')
-    os.rename(save_dir, save_dir + ('_%.2fmm_' % np.mean(mpjpe_all)) + str(num))
+    os.rename(save_dir, save_dir + ('_%.2fmm_' % np.mean(mpjpe_all)) + str(num) + ('_%.2fs' % time_per))
 
 
 def main():
     global use_lim, use_temp, use_filter, w_3d, w_2d, w_lim, w_temp
     # set global params
-    use_lim, use_temp, use_filter = True, True, False
+    use_lim, use_temp, use_filter = True, True, True
     w_3d, w_2d, w_lim, w_temp = 1, 1e-5, 0.1, 0.1
     begin()
     # for w_3d in [10, 1, 0.1]:
