@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import os
+import cv2
+from config import j17_parents
 
 
 def plot_keypoints3d(keypoints3d, line, ax, num):
@@ -17,7 +19,6 @@ def plot_keypoints3d(keypoints3d, line, ax, num):
 
 
 def plot_2skeleton(j3d1, j3d2, frame=0, mpjpe=0, save_dir=None):
-    j17_parents = [-1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 8, 11, 12, 8, 14, 15]
     line = [[i, j] for i, j in enumerate(j17_parents)][1:]
     j3d1 = j3d1 - j3d1[0]
     j3d2 = j3d2 - j3d2[0]
@@ -57,3 +58,18 @@ def plot_2skeleton(j3d1, j3d2, frame=0, mpjpe=0, save_dir=None):
         plt.savefig(save_dir + '/' + ('%04d' % frame) + '.png', dpi=100)
     # plt.show()
     plt.close('all')
+
+
+def frame_to_video(save_dir):
+    print('To Video...')
+    fps = 10
+    fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
+    imgs_name = os.listdir(save_dir)
+    imgs_path = sorted([save_dir + '/' + img_name for img_name in imgs_name])
+    image = cv2.imread(imgs_path[0])
+    videoWriter = cv2.VideoWriter(save_dir + '/../' + save_dir.split('/')[-1] + '.avi', fourcc, fps,
+                                 (image.shape[1], image.shape[0]))
+    for img_path in imgs_path:
+        img = cv2.imread(img_path)
+        videoWriter.write(img)
+    videoWriter.release()

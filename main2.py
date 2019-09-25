@@ -1,7 +1,5 @@
-from Quaternions import Quaternions
-import Animation
 from visualization import plot_2skeleton, frame_to_video
-from dataloader import read_joints_from_h36m
+from dataloader import read_joints_from_h36m, read_joints_from_eval
 from OneEuroFilter import OneEuroFilter
 from config import *
 
@@ -10,79 +8,100 @@ import os
 from datetime import datetime
 import time
 import cv2
+from numba import jit, cuda
 import numpy as np
 np.set_printoptions(suppress=True)
 
 
+# @jit(nopython=True)     # @cuda.jit
+def axis_angles_to_matrixs(axis_angle):
+    angles = np.sqrt(np.sum(axis_angle ** 2, axis=-1))
+    axis = axis_angle / (angles + 1e-10)[..., np.newaxis]
+    sines = np.sin(angles / 2.0)[..., np.newaxis]
+    cosines = np.cos(angles / 2.0)[..., np.newaxis]
+    qs = np.concatenate([cosines, axis * sines], axis=-1)
+
+    qw = qs[:, 0]
+    qx = qs[:, 1]
+    qy = qs[:, 2]
+    qz = qs[:, 3]
+
+    x2 = qx + qx
+    y2 = qy + qy
+    z2 = qz + qz
+    xx = qx * x2
+    yy = qy * y2
+    wx = qw * x2
+    xy = qx * y2
+    yz = qy * z2
+    wy = qw * y2
+    xz = qx * z2
+    zz = qz * z2
+    wz = qw * z2
+
+    m = np.empty((axis_angle.shape[0], 3, 3))
+    m[:, 0, 0] = 1.0 - (yy + zz)
+    m[:, 0, 1] = xy - wz
+    m[:, 0, 2] = xz + wy
+    m[:, 1, 0] = xy + wz
+    m[:, 1, 1] = 1.0 - (xx + zz)
+    m[:, 1, 2] = yz - wx
+    m[:, 2, 0] = xz - wy
+    m[:, 2, 1] = yz + wx
+    m[:, 2, 2] = 1.0 - (xx + yy)
+
+    return m
+
+
+# @jit(nopython=True)
 def compute_joints_from_dofs(dofs, cam):
     global j3d, root_rot
-    frame_num = 1
-    axis_angle = np.zeros((frame_num, 17, 3))
-    # 28 - (tx, ty, tz, rx, ry, rz) = 22
-    axis_angle[0, 0] = root_rot
-    axis_angle[0, 1] = dofs[0: 3]
-    axis_angle[0, 2, 0] = dofs[3]
-    axis_angle[0, 4] = dofs[4: 7]
-    axis_angle[0, 5, 0] = dofs[7]
-    axis_angle[0, 7] = dofs[8: 11]
-    axis_angle[0, 9] = dofs[11: 14]
-    axis_angle[0, 11] = dofs[14: 17]
-    axis_angle[0, 12, 1] = dofs[17]
-    axis_angle[0, 14] = dofs[18: 21]
-    axis_angle[0, 15, 1] = dofs[21]
-    quaternions = Quaternions.from_angle_axis(np.sqrt(np.sum(axis_angle ** 2, axis=-1)), axis_angle)
-    # y-up, z-forward, x-right
-    offsets = input_tpose_j3d - input_tpose_j3d[j17_parents]
-    offsets[0] = j3d[0] * 100   # m -> cm
-    positions = offsets[np.newaxis].repeat(frame_num, axis=0)  # (frames, jointsNum, 3)
-    orients = Quaternions.id(0)
-    for i in range(offsets.shape[0]):
-        orients.qs = np.append(orients.qs, np.array([[1, 0, 0, 0]]), axis=0)
-    anim = Animation.Animation(quaternions, positions, orients, offsets, j17_parents)
-    j3d_pre = Animation.positions_global(anim) / 100    # cm -> m
-    j2d_pre = np.dot(np.divide(j3d_pre, j3d_pre[:, :, 2:], where=j3d_pre[:, :, 2:] != 0), cam.T)[:, :, :2]
-    return j3d_pre[0], j2d_pre[0]
+    axis_angle = np.zeros((17, 3))
+    axis_angle[0] = root_rot
+    axis_angle[1] = dofs[0: 3]
+    axis_angle[2, 0] = dofs[3]
+    axis_angle[4] = dofs[4: 7]
+    axis_angle[5, 0] = dofs[7]
+    axis_angle[7] = dofs[8: 11]
+    axis_angle[9] = dofs[11: 14]
+    axis_angle[11] = dofs[14: 17]
+    axis_angle[12, 1] = dofs[17]
+    axis_angle[14] = dofs[18: 21]
+    axis_angle[15, 1] = dofs[21]
+    j17_parents_arr = np.array(j17_parents)
+    offsets = input_tpose_j3d - input_tpose_j3d[j17_parents_arr]
+    offsets[0] = j3d[0] * 100  # m -> cm
+    local_rot_mat = np.zeros((17, 4, 4))
+    local_rot_mat[:, 0:3, 3] = offsets
+    local_rot_mat[:, 3:4, 3] = 1.0
+    global_rot_mat = np.zeros((17, 4, 4))
+    for i in range(local_rot_mat.shape[0]):
+        local_rot_mat[i, 0:3, 0:3] = cv2.Rodrigues(axis_angle[i])[0]
+    # local_rot_mat[:, 0:3, 0:3] = axis_angles_to_matrixs(axis_angle)
+    global_rot_mat[0] = local_rot_mat[0]
+    for i in range(1, axis_angle.shape[0]):
+        global_rot_mat[i, :] = np.dot(global_rot_mat[j17_parents[i]], local_rot_mat[i])
+    j3d_pre = global_rot_mat[:, 0:3, 3] / 100    # cm -> m
+    j2d_pre = np.dot(np.divide(j3d_pre, j3d_pre[:, 2:], where=j3d_pre[:, 2:] != 0), cam.T)[:, :2]
+    return j3d_pre, j2d_pre
 
 
 def optimize_root_rot(root_rot):
-    global j3d, ppre_root_rot, pre_root_rot
+    global j3d
     gt_tri = (j3d[[1, 4, 7]] - j3d[0]) * 100    # m -> cm
     tpose_tri = input_tpose_j3d[[1, 4, 7]]
-    # root_rot_m = Quaternions.from_angle_axis(np.linalg.norm(root_rot), root_rot).transforms()[0]
     root_rot_m = cv2.Rodrigues(root_rot)[0]
-    pre_tri = np.dot(tpose_tri, root_rot_m.T)   # root_m · tpose_tri.T = gt_tri.T   根据FK的过程应估计列向量右乘时的旋转矩阵
+    pre_tri = np.dot(tpose_tri, root_rot_m.T)   # root_m · tpose_tri.T = gt_tri.T
     error = []
     for i in range(pre_tri.shape[0]):
         error.append(np.mean((gt_tri[i] - pre_tri[i]) ** 2) * w_3d)
-    # 对根节点使用 use_temp 误差会提高不到1mm 所以暂且不用
-    # if use_temp:
-    #     if ppre_root_rot.shape[0] != 1 and pre_root_rot.shape[0] != 1:
-    #         e_temp = np.sqrt(((pre_root_rot - ppre_root_rot - (root_rot - pre_root_rot)) ** 2).mean()) * w_temp
-    #         error.append(e_temp)
-    # 根节点的旋转自由度不需要范围限制
-    # for i in range(root_rot.shape[0]):
-    #     if root_rot[i] > np.pi:
-    #         error.append((root_rot[i] - np.pi) ** 2 * w_lim)
-    #     elif root_rot[i] < -np.pi:
-    #         error.append((root_rot[i] + np.pi) ** 2 * w_lim)
-    #     else:
-    #         error.append(0.)
     return error
-
-# 最小二乘法估计全局旋转虽然很准确，但是得到的旋转矩阵不是正交矩阵，因此变换为轴角再变换回矩阵造成的误差非常大
-# def optimize_root_rot(j3d):
-#     gt_tri = (j3d[[1, 4, 7]] - j3d[0]) * 100    # m -> cm
-#     global input_tpose_j3d
-#     tpose_tri = input_tpose_j3d[[1, 4, 7]]
-#     root_rotm = np.linalg.lstsq(tpose_tri, gt_tri, rcond=-1)[0].T
-#     return cv2.Rodrigues(root_rotm)[0].reshape((-1))
 
 
 def optimize(dofs):
     global j3d, j2d, cam, ppre_dof, pre_dof
-    j3d_pre, j2d_pre = compute_joints_from_dofs(dofs, cam)   # (17, 3/2)
+    j3d_pre, j2d_pre = compute_joints_from_dofs(dofs, cam)   # (17, 3/3)
     e3d = w_3d * np.mean((j3d - j3d_pre) ** 2, axis=-1)
-    # j_cal_cam = np.array([1, 2, 3, 4, 5, 6, 7, 9, 11, 12, 13, 14, 15, 16])
     e2d = w_2d * np.mean(j2d[:, 2:] * (j2d[:, :2] - j2d_pre[:, :2]) ** 2, axis=-1)
     error = []
     for j in range(e3d.shape[0]):
@@ -106,11 +125,16 @@ def optimize(dofs):
     return error
 
 
-def begin():
+def main():
     global j3d, j2d, cam, ppre_dof, pre_dof, root_rot, ppre_root_rot, pre_root_rot
     ppre_dof, pre_dof = np.zeros((1, 1)), np.zeros((1, 1))
     ppre_root_rot, pre_root_rot = np.zeros((1, 1)), np.zeros((1, 1))
-    j3ds, j2ds, cam = read_joints_from_h36m()      # (F, 17, 3/3)
+    use_gt = True
+    print("Begin load data...")
+    if use_gt:
+        j3ds, j2ds, cam = read_joints_from_h36m()      # (F, 17, 3/3)
+    else:
+        j3ds, j2ds, cam, gt_j3ds = read_joints_from_eval()      # (F, 17, 3/3)
     frame_num = j3ds.shape[0]
     dofs = np.zeros((frame_num, 28), dtype=float)
     dofs[:, :3] = j3ds[:, 0]
@@ -119,7 +143,9 @@ def begin():
     subject_name = data_path.split('/')[-2]
     if 'all' in data_path:
         subject_name = 'all_' + subject_name
-    save_dir = './out/' + time_str + '_' + subject_name + '_3d_' + str(w_3d) + '+2d_' + str(w_2d)
+    if not use_gt:
+        subject_name = 'all_pre_' + subject_name
+    save_dir = './out/main2_' + time_str + '_' + subject_name + '_3d_' + str(w_3d) + '+2d_' + str(w_2d)
     if use_lim:
         save_dir += '+lim_' + str(w_lim)
     if use_temp:
@@ -144,12 +170,6 @@ def begin():
     mpjpe_all = []
     threshold = 100.
     num = 0
-    # dofs = np.loadtxt('./out/09_13_11_54_WalkingDog-2_3d_1+2d_1e-05+lim_0.1+te mp_0.1_49.63mm_1/09_13_11_54_dofs.txt')
-    # j3d, j2d = j3ds[0], j2ds[0]
-    # root_rot = dofs[0, 3:6]
-    # j3d_pre, j2d_pre = compute_joints_from_dofs(dofs[0, 6:], cam)
-    # print(j3d * 100)
-    # print(root_rot)
     for f in range(frame_num):
         print('-------------------------------------')
         j3d, j2d = j3ds[f], j2ds[f]
@@ -160,7 +180,7 @@ def begin():
         sol = root(optimize_root_rot, dofs[f, 3:6], method='lm')
         root_rot = sol.x
         dofs[f, 3:6] = root_rot
-
+        # predict all rot
         sol = root(optimize, dofs[f, 6:], method='lm')
         dofs[f, 6:] = sol.x
         if f == 0:
@@ -190,13 +210,11 @@ def begin():
             for i, j in enumerate([9, 13, 12, 15]):
                 dofs[f, j] = filter_dof1[i](dofs[f, j])
 
-        # print(sol.x)
-        # print(sol.success)
-        # print(sol.nfev)
-        # print(sol.message)
-        # print(sol.fun)
         j3d_pre, j2d_pre = compute_joints_from_dofs(dofs[f, 6:], cam)
-        mpjpe = np.mean(np.linalg.norm(j3d * 1000 - j3d_pre * 1000, axis=-1))
+        if use_gt:
+            mpjpe = np.mean(np.linalg.norm(j3d * 1000 - j3d_pre * 1000, axis=-1))
+        else:
+            mpjpe = np.mean(np.linalg.norm(gt_j3ds[f] * 1000 - j3d_pre * 1000, axis=-1))
         if mpjpe > threshold:
             num += 1
         mpjpe_all.append(mpjpe)
@@ -217,15 +235,6 @@ def begin():
 
     frame_to_video(save_dir + '/3d_skeleton')
     os.rename(save_dir, save_dir + ('_%.2fmm_' % np.mean(mpjpe_all)) + str(num) + ('_%.2fs' % time_per))
-
-
-def main():
-    begin()
-    # for w_3d in [10, 1, 0.1]:
-    #     for w_2d in [1, 1e-1, 1e-3, 1e-5]:
-    #         for w_lim in [10, 1, 0.1]:
-    #             for w_temp in [1e-1, 1e-3, 1e-5, 1e-7]:
-    #                 begin()
 
 
 if __name__ == '__main__':
