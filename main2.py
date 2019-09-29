@@ -2,6 +2,8 @@ from visualization import plot_2skeleton, frame_to_video
 from dataloader import read_joints_from_h36m, read_joints_from_eval
 from OneEuroFilter import OneEuroFilter
 from config import *
+from utils import *
+from Quaternions import Quaternions
 
 from scipy.optimize import root
 import os
@@ -11,46 +13,6 @@ import cv2
 from numba import jit, cuda
 import numpy as np
 np.set_printoptions(suppress=True)
-
-
-# @jit(nopython=True)     # @cuda.jit
-def axis_angles_to_matrixs(axis_angle):
-    angles = np.sqrt(np.sum(axis_angle ** 2, axis=-1))
-    axis = axis_angle / (angles + 1e-10)[..., np.newaxis]
-    sines = np.sin(angles / 2.0)[..., np.newaxis]
-    cosines = np.cos(angles / 2.0)[..., np.newaxis]
-    qs = np.concatenate([cosines, axis * sines], axis=-1)
-
-    qw = qs[:, 0]
-    qx = qs[:, 1]
-    qy = qs[:, 2]
-    qz = qs[:, 3]
-
-    x2 = qx + qx
-    y2 = qy + qy
-    z2 = qz + qz
-    xx = qx * x2
-    yy = qy * y2
-    wx = qw * x2
-    xy = qx * y2
-    yz = qy * z2
-    wy = qw * y2
-    xz = qx * z2
-    zz = qz * z2
-    wz = qw * z2
-
-    m = np.empty((axis_angle.shape[0], 3, 3))
-    m[:, 0, 0] = 1.0 - (yy + zz)
-    m[:, 0, 1] = xy - wz
-    m[:, 0, 2] = xz + wy
-    m[:, 1, 0] = xy + wz
-    m[:, 1, 1] = 1.0 - (xx + zz)
-    m[:, 1, 2] = yz - wx
-    m[:, 2, 0] = xz - wy
-    m[:, 2, 1] = yz + wx
-    m[:, 2, 2] = 1.0 - (xx + yy)
-
-    return m
 
 
 # @jit(nopython=True)
@@ -68,8 +30,7 @@ def compute_joints_from_dofs(dofs, cam):
     axis_angle[12, 1] = dofs[17]
     axis_angle[14] = dofs[18: 21]
     axis_angle[15, 1] = dofs[21]
-    j17_parents_arr = np.array(j17_parents)
-    offsets = input_tpose_j3d - input_tpose_j3d[j17_parents_arr]
+    offsets = input_tpose_j3d - input_tpose_j3d[j17_parents]
     offsets[0] = j3d[0] * 100  # m -> cm
     local_rot_mat = np.zeros((17, 4, 4))
     local_rot_mat[:, 0:3, 3] = offsets
@@ -129,7 +90,6 @@ def main():
     global j3d, j2d, cam, ppre_dof, pre_dof, root_rot, ppre_root_rot, pre_root_rot
     ppre_dof, pre_dof = np.zeros((1, 1)), np.zeros((1, 1))
     ppre_root_rot, pre_root_rot = np.zeros((1, 1)), np.zeros((1, 1))
-    use_gt = True
     print("Begin load data...")
     if use_gt:
         j3ds, j2ds, cam = read_joints_from_h36m()      # (F, 17, 3/3)
@@ -145,7 +105,12 @@ def main():
         subject_name = 'all_' + subject_name
     if not use_gt:
         subject_name = 'all_pre_' + subject_name
-    save_dir = './out/main2_' + time_str + '_' + subject_name + '_3d_' + str(w_3d) + '+2d_' + str(w_2d)
+    prefix = time_str + '_'
+    if isXiaoice:
+        prefix += 'Xiaoice_'
+    elif isAijiang:
+        prefix += 'Aijiang_'
+    save_dir = './out/main2_' + prefix + subject_name + '_3d_' + str(w_3d) + '+2d_' + str(w_2d)
     if use_lim:
         save_dir += '+lim_' + str(w_lim)
     if use_temp:
@@ -161,6 +126,8 @@ def main():
         'beta': 0.4,
         'dcutoff': 1.0
     }
+    if 'all' in data_path:
+        config_filter['freq'] = 50
     # 有3个自由度的节点有6个，有1个自由度的节点有4个
     filter_dof3 = [(OneEuroFilter(**config_filter), OneEuroFilter(**config_filter),
                     OneEuroFilter(**config_filter), OneEuroFilter(**config_filter)) for _ in range(6)]
@@ -228,14 +195,35 @@ def main():
     fd = open(save_dir + '/logs.txt', 'a+')
     fd.write('MPJPE-mean: ' + ('%.2f' % np.mean(mpjpe_all)) + ' mm\n')
     fd.close()
-    np.savetxt(save_dir + '/' + time_str + '_' + subject_name + '_dofs.txt', dofs, fmt='%1.6f')
+    np.savetxt(save_dir + '/' + prefix + subject_name + '_dofs.txt', dofs, fmt='%1.6f')
+    dofs_new = np.zeros((dofs.shape[0], 18, 3))
+    dofs_new[:, 0] = dofs[:, 0: 3]
+    dofs_new[:, 1] = dofs[:, 3: 6]
+    dofs_new[:, 2] = dofs[:, 6: 9]
+    dofs_new[:, 3, 0] = dofs[:, 9]
+    dofs_new[:, 5] = dofs[:, 10: 13]
+    dofs_new[:, 6, 0] = dofs[:, 13]
+    dofs_new[:, 8] = dofs[:, 14: 17]
+    dofs_new[:, 10] = dofs[:, 17: 20]
+    dofs_new[:, 12] = dofs[:, 20: 23]
+    dofs_new[:, 13, 1] = dofs[:, 23]
+    dofs_new[:, 15] = dofs[:, 24: 27]
+    dofs_new[:, 16, 1] = dofs[:, 27]
+    np.savetxt(save_dir + '/' + prefix + subject_name + '_dofs_new.txt', dofs_new.reshape((frame_num, -1)), fmt='%1.6f')
+    dofs_world = dofs_local2world(dofs)  # (f, 18, 3)
+    np.savetxt(save_dir + '/' + prefix + subject_name + '_dofs_world.txt', dofs_world.reshape((frame_num, -1)),
+               fmt='%1.6f')
     time_per = (end_t - start_t) / frame_num
     print('time every frame: ' + str(time_per))
     print(np.mean(mpjpe_all))
-
     frame_to_video(save_dir + '/3d_skeleton')
     os.rename(save_dir, save_dir + ('_%.2fmm_' % np.mean(mpjpe_all)) + str(num) + ('_%.2fs' % time_per))
+
+    # dofs = np.loadtxt('./out/main2_09_29_17_19_WalkingTogether-1_3d_1+2d_1e-05+lim_0.1+temp_0.1+filter_49.60mm_0_1.26s/09_29_17_19_WalkingTogether-1_dofs.txt')
+    # np.savetxt('./out/main2_09_29_17_19_WalkingTogether-1_3d_1+2d_1e-05+lim_0.1+temp_0.1+filter_49.60mm_0_1.26s/09_29_17_19_WalkingTogether-1_dofs_world.txt',
+    #            dofs_world.reshape((dofs.shape[0], -1)), fmt='%1.6f')
 
 
 if __name__ == '__main__':
     main()
+

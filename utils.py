@@ -2,8 +2,84 @@ import numpy as np
 import h5py
 
 from config import *
+from Quaternions import Quaternions
+import numpy.core.umath_tests as ut
 
 
+def axis_angles_to_matrixs(axis_angle):
+    angles = np.sqrt(np.sum(axis_angle ** 2, axis=-1))
+    axis = axis_angle / (angles + 1e-10)[..., np.newaxis]
+    sines = np.sin(angles / 2.0)[..., np.newaxis]
+    cosines = np.cos(angles / 2.0)[..., np.newaxis]
+    qs = np.concatenate([cosines, axis * sines], axis=-1)
+
+    qw = qs[..., 0]
+    qx = qs[..., 1]
+    qy = qs[..., 2]
+    qz = qs[..., 3]
+
+    x2 = qx + qx
+    y2 = qy + qy
+    z2 = qz + qz
+    xx = qx * x2
+    yy = qy * y2
+    wx = qw * x2
+    xy = qx * y2
+    yz = qy * z2
+    wy = qw * y2
+    xz = qx * z2
+    zz = qz * z2
+    wz = qw * z2
+
+    m = np.empty(axis_angle.shape[:-1] + (3, 3))
+    m[..., 0, 0] = 1.0 - (yy + zz)
+    m[..., 0, 1] = xy - wz
+    m[..., 0, 2] = xz + wy
+    m[..., 1, 0] = xy + wz
+    m[..., 1, 1] = 1.0 - (xx + zz)
+    m[..., 1, 2] = yz - wx
+    m[..., 2, 0] = xz - wy
+    m[..., 2, 1] = yz + wx
+    m[..., 2, 2] = 1.0 - (xx + yy)
+
+    return m
+
+
+def matrix_to_axis_angle(ts):
+    q = Quaternions.from_transforms(ts)
+    angles, axis = q.angle_axis()
+    return angles[..., np.newaxis] * axis
+
+
+def dofs_local2world(dofs):
+    frame = dofs.shape[0]
+    dofs_new = np.zeros((dofs.shape[0], 18, 3))
+    dofs_new[:, 0] = dofs[:, 0: 3]
+    dofs_new[:, 1] = dofs[:, 3: 6]
+    dofs_new[:, 2] = dofs[:, 6: 9]
+    dofs_new[:, 3, 0] = dofs[:, 9]
+    dofs_new[:, 5] = dofs[:, 10: 13]
+    dofs_new[:, 6, 0] = dofs[:, 13]
+    dofs_new[:, 8] = dofs[:, 14: 17]
+    dofs_new[:, 10] = dofs[:, 17: 20]
+    dofs_new[:, 12] = dofs[:, 20: 23]
+    dofs_new[:, 13, 1] = dofs[:, 23]
+    dofs_new[:, 15] = dofs[:, 24: 27]
+    dofs_new[:, 16, 1] = dofs[:, 27]
+    global_rot_mat = np.zeros((frame, 17, 3, 3))
+    axis_angle = dofs_new[:, 1:]
+    local_rot_mat = axis_angles_to_matrixs(axis_angle)      # (frame, 17, 3, 3)
+    global_rot_mat[:, 0] = local_rot_mat[:, 0]
+    for i in range(1, axis_angle.shape[1]):
+        global_rot_mat[:, i] = ut.matrix_multiply(global_rot_mat[:, j17_parents[i]], local_rot_mat[:, i])
+    angles, axis = Quaternions.from_transforms(global_rot_mat).angle_axis()
+    angle_axis_world = angles[..., np.newaxis] * axis
+    dofs_world = dofs_new
+    dofs_world[:, 1:] = angle_axis_world
+    return dofs_world
+
+
+# ----------------------------------------------------------------------------------------------------------------------
 def infer_camera_intrinsics(points2d, points3d):
     """Infer camera instrinsics from 2D<->3D point correspondences."""
     pose2d = points2d.reshape(-1, 2)
@@ -34,21 +110,26 @@ def mixamo_skeleton_fit(j3d_h36m):
 
 
 def h36m_skeleton_fit(j3d_h36m):
-    if mixamo:
+    if isXiaoice:
         head = j3d_h36m[:, 10] - j3d_h36m[:, 9]
         neck = j3d_h36m[:, 9] - j3d_h36m[:, 8]
-        j3d_h36m[:, 8] = j3d_h36m[:, 8] - (j3d_h36m[:, 8] - j3d_h36m[:, 7]) / 3
+        j3d_h36m[:, 8] = j3d_h36m[:, 8] - (j3d_h36m[:, 8] - j3d_h36m[:, 7]) / 2
         j3d_h36m[:, 9] = j3d_h36m[:, 8] + neck
         j3d_h36m[:, 10] = j3d_h36m[:, 9] + head
-        j3d_h36m[:, 0] = ((j3d_h36m[:, 1] + j3d_h36m[:, 4] + j3d_h36m[:, 7]) / 3 - j3d_h36m[:, 0]) / 2 + j3d_h36m[:, 0]
-    else:
+    elif isAijiang:
         head = j3d_h36m[:, 10] - j3d_h36m[:, 9]
         neck = j3d_h36m[:, 9] - j3d_h36m[:, 8]
         j3d_h36m[:, 0] = j3d_h36m[:, 7] - (j3d_h36m[:, 7] - j3d_h36m[:, 0]) / 10
         j3d_h36m[:, 8] = j3d_h36m[:, 7] + (j3d_h36m[:, 8] - j3d_h36m[:, 7]) / 3
         j3d_h36m[:, 9] = j3d_h36m[:, 8] + neck
         j3d_h36m[:, 10] = j3d_h36m[:, 9] + head
-
+    else:
+        head = j3d_h36m[:, 10] - j3d_h36m[:, 9]
+        neck = j3d_h36m[:, 9] - j3d_h36m[:, 8]
+        j3d_h36m[:, 8] = j3d_h36m[:, 8] - (j3d_h36m[:, 8] - j3d_h36m[:, 7]) / 3
+        j3d_h36m[:, 9] = j3d_h36m[:, 8] + neck
+        j3d_h36m[:, 10] = j3d_h36m[:, 9] + head
+        j3d_h36m[:, 0] = ((j3d_h36m[:, 1] + j3d_h36m[:, 4] + j3d_h36m[:, 7]) / 3 - j3d_h36m[:, 0]) / 2 + j3d_h36m[:, 0]
     j17_ori = input_tpose_j3d / 100     # cm -> m
     bone_ori = np.linalg.norm(j17_ori - j17_ori[j17_parents], axis=-1)[1:].reshape((-1, 1))
     bone_h36m = np.linalg.norm(j3d_h36m - j3d_h36m[:, j17_parents], axis=-1)[:, 1:].reshape((j3d_h36m.shape[0], -1, 1))

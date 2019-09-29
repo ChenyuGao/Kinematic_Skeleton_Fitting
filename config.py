@@ -31,6 +31,7 @@ dofs:
 26: right_shoulder_rz -> 14
 27: right_elbow_ry -> 15
 '''
+# 22个旋转自由度的最大最小值约束
 dofs_limit = np.array([
     [-2.5, 1.4],    # 6
     [-0.1, 0.5],    # 7     [-0.8, 1.2]
@@ -55,9 +56,9 @@ dofs_limit = np.array([
     [-1.8, 1.4],    # 26
     [-2.6, 0.0],    # 27    [-2.7, -0.065]
 ])
-data_path = 'E:/Datasets/Human3.6m/processed/S11/WalkingDog-1/'
-j17_parents = [-1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 8, 11, 12, 8, 14, 15]
-# human forward to -z in right-handed coordinate system
+j17_parents = np.array([-1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 8, 11, 12, 8, 14, 15])
+# ----------------------------------------------character skeleton------------------------------------------------------
+# 下面构造的初始骨架坐标信息是在右手系下，三根轴朝向与Unity中的三根轴正好全部相反，因此得到的轴角数据在Unity里刚好可以直接使用而不用变换
 # passive_marker_man 的初始 tpose 各节点3D坐标
 passive_marker_man_tpose_j3d = np.array([[  0.        ,   0.        ,   0.        ],
                                          [ -9.63380134,   3.27329199,   0.        ],
@@ -119,10 +120,39 @@ kizunaai_xpose_j3d = np.array([[  0.       ,   0.       ,   0.       ],
                                [-26.765136 , -13.134701 ,   5.0007079],
                                [-41.443936 ,  -1.678071 ,   4.4246289]])
 
-# -----------------------------------------config---------------------------------------------------------------
-mixamo = False      # 若为 False 则选择爱酱模型进行骨架适配
-input_tpose_j3d = kizunaai_xpose_j3d
+xiaoice_tpose_j3d = np.array([[  0.,   0.,  0.],
+                              [ -8.,   0.,  0.],
+                              [ -8.,  40.,  0.],
+                              [ -7.,  83.,  3.],
+                              [  8.,   0.,  0.],
+                              [  8.,  40.,  0.],
+                              [  7.,  83.,  3.],
+                              [  0., -18., -1.],
+                              [  0., -28., -1.],
+                              [  0., -44.,  3.],
+                              [  0., -50.,  2.],
+                              [ 15., -40.,  3.],
+                              [ 38., -40.,  4.],
+                              [ 58., -39.,  3.],
+                              [-15., -40.,  3],
+                              [-38., -40.,  4.],
+                              [-58., -40.,  3.]])
+# -----------------------------------------config params----------------------------------------------------------------
+# demo params
+data_path = 'E:/Datasets/Human3.6m/processed/S11/WalkingTogether-1/'
+use_gt = True       # 若为 True 则使用3D坐标真值，否则使用预测的3D坐标
+# skeleton params
+isXiaoice = True       # 若为 True 则选择小冰模型进行骨架适配
+isAijiang = False      # 若为 True 则选择爱酱模型进行骨架适配
+if isXiaoice:
+    input_tpose_j3d = xiaoice_tpose_j3d
+elif isAijiang:
+    input_tpose_j3d = kizunaai_xpose_j3d
+else:
+    input_tpose_j3d = passive_marker_man_tpose_j3d
+# train params
 use_lim, use_temp, use_filter = True, True, True
 w_3d, w_2d, w_lim, w_temp = 1, 1e-5, 0.1, 0.1
+# h36m测试集的预测值路径
 all_eval_path = 'E:/Projects/Kinematic_Skeleton_Fitting/input/video3d_sbl_foot.valid.npz'
 

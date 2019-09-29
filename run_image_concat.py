@@ -4,8 +4,8 @@ import cv2
 from tqdm import tqdm
 from main import data_path
 
-images_dir = 'E:/Datasets/Human3.6m/processed_all/S11/WalkingDog-1/imageSequence-60457274'
-log = 'main2_09_20_17_35_all_pre_WalkingDog-1_3d_1+2d_1e-05+lim_0.1+temp_0.1+filter_87.66mm_272_0.97s'
+images_dir = 'E:/Datasets/Human3.6m/processed/S11/SittingDown-1/imageSequence-60457274'
+log = 'main2_09_26_14_59_SittingDown-1_3d_1+2d_1e-05+lim_0.1+temp_0.1+filter_62.88mm_0_1.46s'
 images_unity_dir = 'E:/Projects/Kinematic_Skeleton_Fitting/out/' + log + '/unity_frames'
 skeleton_dir = 'E:/Projects/Kinematic_Skeleton_Fitting/out/' + log + '/3d_skeleton'
 save_dir = 'E:/Projects/Kinematic_Skeleton_Fitting/out/' + log + '/image_unity_all'
@@ -35,7 +35,7 @@ for i in tqdm(range(len(images_path))):
     toImage.save(os.path.join(save_dir, image_name))
 
 print('To Video...')
-fps = 50
+fps = 10
 fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
 imgs_name = sorted(os.listdir(save_dir))
 imgs_path = [os.path.join(save_dir, img_name) for img_name in imgs_name]

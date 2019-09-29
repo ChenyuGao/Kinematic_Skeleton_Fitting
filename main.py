@@ -135,6 +135,8 @@ def begin():
         'beta': 0.4,
         'dcutoff': 1.0
     }
+    if 'all' in data_path:
+        config_filter['freq'] = 50
     # 有3个自由度的节点有6个，有1个自由度的节点有4个
     filter_dof3 = [(OneEuroFilter(**config_filter), OneEuroFilter(**config_filter),
                     OneEuroFilter(**config_filter), OneEuroFilter(**config_filter)) for _ in range(6)]

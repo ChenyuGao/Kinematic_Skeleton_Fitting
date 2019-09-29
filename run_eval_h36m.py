@@ -143,7 +143,7 @@ def evaluate_sequence(all_data, seq_info, pred_dir):
     dofs = np.zeros((frame_num, 28), dtype=float)
     dofs[:, :3] = j3ds[:, 0]
     config_filter = {
-        'freq': 10,
+        'freq': 50,
         'mincutoff': 20.0,
         'beta': 0.4,
         'dcutoff': 1.0
@@ -195,6 +195,8 @@ def evaluate_sequence(all_data, seq_info, pred_dir):
                 dofs[f, j] = filter_dof1[i](dofs[f, j])
 
         j3d_pre[f], _ = compute_joints_from_dofs(dofs[f, 6:], cam)
+        mpjpe = np.mean(np.linalg.norm(j3d * 1000 - j3d_pre[f] * 1000, axis=-1))
+        print(('%04d' % f) + '-MPJPE: ' + ('%.2f' % mpjpe) + ' mm')
 
     errors, errors_pa = compute_errors(gt3ds * 1000., j3d_pre * 1000.)
     errors_n = n_mpjpe(gt3ds * 1000., j3d_pre * 1000.)
@@ -332,7 +334,7 @@ def eval(pred_dir, protocol=2):
 
 if __name__ == '__main__':
     protocol = 2
-    pred_dir = './out/eval/main2_P' + str(protocol) + '/'
+    pred_dir = './out/eval/main2_P' + str(protocol) + '_test/'
     if not os.path.exists(pred_dir):
         os.makedirs(pred_dir)
         os.makedirs(pred_dir + 'dofs/')

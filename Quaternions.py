@@ -1,6 +1,5 @@
 import numpy as np
 
-
 class Quaternions:
     """
     Quaternions is a wrapper around a numpy ndarray

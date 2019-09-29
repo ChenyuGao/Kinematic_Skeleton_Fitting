@@ -36,9 +36,11 @@ def read_joints_from_eval(eval_path=all_eval_path):
     #         for i in range(4):
     #             j3d = pose_3d[subject][action][i]
     #             j2d = pose_2d[subject][action][i]
-    j3d = pose_3d['S11']['WalkingDog-1'][3]
-    gt3d = gt_3d['S11']['WalkingDog-1'][3]
-    j2d = pose_2d['S11']['WalkingDog-1'][3]
+    subject = data_path.split('/')[-3]
+    action = data_path.split('/')[-2]
+    j3d = pose_3d[subject][action][3]
+    gt3d = gt_3d[subject][action][3]
+    j2d = pose_2d[subject][action][3]
     index_f19_t17 = [0, 1, 2, 3, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
     j3d, j2d, gt3d = j3d[:, index_f19_t17], j2d[:, index_f19_t17], gt3d[:, index_f19_t17]   # j3d: m   j2d: [-1, 1]
     j3d = h36m_skeleton_fit(j3d)
