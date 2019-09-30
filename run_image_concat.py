@@ -4,8 +4,8 @@ import cv2
 from tqdm import tqdm
 from main import data_path
 
-images_dir = 'E:/Datasets/Human3.6m/processed/S11/SittingDown-1/imageSequence-60457274'
-log = 'main2_09_26_14_59_SittingDown-1_3d_1+2d_1e-05+lim_0.1+temp_0.1+filter_62.88mm_0_1.46s'
+images_dir = 'E:/Datasets/Human3.6m/processed/S11/WalkingTogether-1/imageSequence-60457274'
+log = 'main2_09_29_21_53_Xiaoice_WalkingTogether-1_3d_1+2d_1e-05+lim_0.1+temp_0.1+filter_45.24mm_0_2.19s'
 images_unity_dir = 'E:/Projects/Kinematic_Skeleton_Fitting/out/' + log + '/unity_frames'
 skeleton_dir = 'E:/Projects/Kinematic_Skeleton_Fitting/out/' + log + '/3d_skeleton'
 save_dir = 'E:/Projects/Kinematic_Skeleton_Fitting/out/' + log + '/image_unity_all'
